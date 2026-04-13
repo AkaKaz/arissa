@@ -12,10 +12,6 @@ model = "claude-sonnet-4-20250514"
 name = "arissa"
 max_tool_iterations = 10
 
-[memory]
-enabled = true
-db_path = "/var/lib/arissa/memory.db"
-
 [prompt]
 system = "/etc/arissa/system.prompt.md"
 context_dir = "/etc/arissa/context"

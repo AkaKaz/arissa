@@ -13,7 +13,6 @@
 - Claude（Anthropic API）が tool_use でシェルコマンドを生成する
 - `shell_exec` は実行前に Slack ボタンで operator 承認を取る
 - 権限境界は `arissa` サービスユーザの groups と sudoers で OS が担保する
-- 会話履歴は SQLite (`modernc.org/sqlite`, pure Go) に保存する
 
 ---
 
@@ -33,7 +32,6 @@ arissa/
 ├── internal/
 │   ├── config/config.go           /etc/arissa/config.toml 読み込み
 │   ├── prompt/prompt.go           system.prompt.md + context/*.md + skills/*.md 合成
-│   ├── memory/memory.go           SQLite (turns / memories)
 │   ├── slack/slack.go             Socket Mode ゲートウェイ
 │   ├── agent/agent.go             Claude tool-use ループ (Session / SessionRegistry)
 │   ├── tools/shell/shell.go       shell_exec
@@ -54,7 +52,6 @@ arissa/
 | LLM | `github.com/anthropics/anthropic-sdk-go` (Beta) / 既定モデル `claude-sonnet-4-20250514` |
 | チャット UI | `github.com/slack-go/slack`（Socket Mode） |
 | 設定 | `github.com/pelletier/go-toml/v2` |
-| メモリ | `modernc.org/sqlite`（pure Go、CGo 不要） |
 | プロセス管理 | systemd (`Type=simple`) |
 | パッケージング | Debian (`debian/control`, `debian/postinst`) |
 | 開発環境 | Dev container (`mcr.microsoft.com/devcontainers/go:1-trixie`) |
@@ -71,7 +68,6 @@ arissa/
 | `internal/config` | `/etc/arissa/config.toml`（`ARISSA_CONFIG` で上書き可）を読む。必須項目（slack bot/app token、anthropic api key）が欠ければ `(nil, nil)` を返し、`main` が `os.Exit(0)` |
 | `internal/prompt` | `prompt.system` / `prompt.context_dir` / `prompt.skills_dir` を起動時に合成。context は `<context name="…">…</context>`、skills は `<skill name="…">…</skill>` で囲む |
 | `internal/agent` | Claude tool-use ループ。`Session` がユーザ毎の履歴（ローリング 20 ターン）を持つ。ループ上限は `agent.max_tool_iterations`（既定 10） |
-| `internal/memory` | `turns`（会話履歴）と `memories`（長期 key-value）。`user_id IS NULL` でグローバル事実 |
 | `internal/slack` | Socket Mode。`app_mention` と channel type `im` の `message` を処理。受信時 `:thumbsup:` リアクション、`!reset` でセッションクリア、返答は 3900 バイトでチャンク分割 |
 | `internal/tools/shell` | `shell_exec` スキーマと実行・整形 |
 | `internal/tools/approval` | Slack ボタン承認。5 分タイムアウト |
@@ -111,22 +107,9 @@ arissa/
 
 ---
 
-## 7. データモデル
+## 7. 設定ファイル
 
-```sql
-turns(id, user_id, role, content, created_at)
-memories(id, user_id, key, value, created_at, updated_at)
-```
-
-- 保存先は `memory.db_path`（既定 `/var/lib/arissa/memory.db`）
-- `PRAGMA journal_mode=WAL`
-- ローリングウィンドウ（20 ターン）で履歴トリム、先頭に dangling な tool_result が残らないよう調整
-
----
-
-## 8. 設定ファイル
-
-### 8.1 `/etc/arissa/config.toml`
+### 7.1 `/etc/arissa/config.toml`
 
 ```toml
 [slack]
@@ -143,17 +126,13 @@ model = "claude-sonnet-4-20250514"
 name = "arissa"
 max_tool_iterations = 10
 
-[memory]
-enabled = true
-db_path = "/var/lib/arissa/memory.db"
-
 [prompt]
 system = "/etc/arissa/system.prompt.md"
 context_dir = "/etc/arissa/context"
 skills_dir = "/etc/arissa/skills"
 ```
 
-### 8.2 プロンプト関連
+### 7.2 プロンプト関連
 
 - `/etc/arissa/system.prompt.md` — ベースのペルソナ・運用ルール
 - `/etc/arissa/context/*.md` — 起動時に読まれ `<context name="…">…</context>` として合成
@@ -163,28 +142,28 @@ operator は再起動でプロンプトを差し替えられる。
 
 ---
 
-## 9. ビルド・配布
+## 8. ビルド・配布
 
-### 9.1 Go によるシングルバイナリ
+### 8.1 Go によるシングルバイナリ
 
-- `go build` で pure Go バイナリを生成（CGo 不要、`modernc.org/sqlite` 採用のため）
+- `go build` で pure Go バイナリを生成（`CGO_ENABLED=0`）
 - 期待サイズ: 約 15〜20 MB（Bun `--compile` の 97 MB と比較して 1/5）
 - deb サイズ: 約 5〜8 MB
 
-### 9.2 開発環境
+### 8.2 開発環境
 
 - Dev container (`mcr.microsoft.com/devcontainers/go:1-trixie`)
 - 配布先の Debian trixie と同じベース、`dpkg-deb` 標準搭載
 - `github-cli` feature で `gh` を追加
 
-### 9.3 CI
+### 8.3 CI
 
 - `actions/setup-go@v5` による軽量な build ジョブ
 - `deb-install-test` ジョブで `debian:trixie` への `dpkg -i` と `systemd-analyze verify`
 - `golangci-lint-action` による lint
 - リリースは `v*` タグ push で `softprops/action-gh-release`
 
-### 9.4 バージョン採番
+### 8.4 バージョン採番
 
 - `version.mk` が `git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --dirty` からバージョンを導出
 - 初回 tag 前は `0.0.0-dev.<sha>`
@@ -192,7 +171,7 @@ operator は再起動でプロンプトを差し替えられる。
 
 ---
 
-## 10. 運用
+## 9. 運用
 
 - Debian パッケージ経由でインストール。`postinst` が `arissa` ユーザと必要ディレクトリを作る
 - `systemctl start arissa` で起動

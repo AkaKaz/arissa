@@ -14,7 +14,7 @@ case "$1" in
         mkdir -p /etc/arissa/context /etc/arissa/skills
         mkdir -p /var/lib/arissa
 
-        # /var/lib/arissa holds the SQLite memory DB; owned by arissa.
+        # /var/lib/arissa is arissa's state directory, owned by arissa.
         chown arissa:arissa /var/lib/arissa
 
         # Install default config if missing.

@@ -19,7 +19,6 @@ import (
 
 	"arissa/internal/agent"
 	"arissa/internal/config"
-	"arissa/internal/memory"
 	"arissa/internal/prompt"
 	slackgw "arissa/internal/slack"
 	"arissa/internal/tools/approval"
@@ -50,16 +49,6 @@ func run() error {
 	client := anthropic.NewClient(option.WithAPIKey(cfg.Anthropic.APIKey))
 	systemPrompt := prompt.Build(cfg)
 
-	var mem *memory.Memory
-	if cfg.Memory.Enabled {
-		m, err := memory.Open(cfg)
-		if err != nil {
-			return fmt.Errorf("open memory: %w", err)
-		}
-		mem = m
-		defer func() { _ = mem.Close() }()
-	}
-
 	broker := approval.NewBroker()
 	gw := slackgw.New(cfg, broker)
 
@@ -67,7 +56,6 @@ func run() error {
 		Client:       &client,
 		Cfg:          cfg,
 		SystemPrompt: systemPrompt,
-		Memory:       mem,
 		Tools:        []anthropic.ToolUnionParam{shell.Tool()},
 		Handle:       makeToolHandler(cfg, gw, broker),
 	}

@@ -17,7 +17,6 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 
 	"arissa/internal/config"
-	"arissa/internal/memory"
 )
 
 const defaultMaxToolIterations = 10
@@ -49,7 +48,6 @@ type Deps struct {
 	Client       *anthropic.Client
 	Cfg          *config.Config
 	SystemPrompt string
-	Memory       *memory.Memory
 	Tools        []anthropic.ToolUnionParam
 	Handle       ToolHandler
 }
@@ -70,10 +68,6 @@ func NewSession(deps *Deps) *Session {
 // assistant message.
 func (s *Session) Send(ctx context.Context, userText string, ac Context) (string, error) {
 	s.history = append(s.history, anthropic.NewUserMessage(anthropic.NewTextBlock(userText)))
-
-	if s.deps.Memory != nil {
-		_ = s.deps.Memory.SaveTurn(ac.UserID, "user", userText)
-	}
 	s.trim()
 
 	maxIter := s.deps.Cfg.Agent.MaxToolIterations
@@ -99,9 +93,6 @@ func (s *Session) Send(ctx context.Context, userText string, ac Context) (string
 
 		if resp.StopReason != anthropic.StopReasonToolUse {
 			text := collectText(resp.Content)
-			if s.deps.Memory != nil {
-				_ = s.deps.Memory.SaveTurn(ac.UserID, "assistant", text)
-			}
 			s.trim()
 			if text == "" {
 				return "(no response)", nil
@@ -194,7 +185,4 @@ func (r *Registry) Reset(userID string) {
 	r.mu.Lock()
 	delete(r.sessions, userID)
 	r.mu.Unlock()
-	if r.deps.Memory != nil {
-		_ = r.deps.Memory.ClearTurns(userID)
-	}
 }

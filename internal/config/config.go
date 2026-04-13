@@ -19,7 +19,6 @@ type Config struct {
 	Slack     SlackConfig
 	Anthropic AnthropicConfig
 	Agent     AgentConfig
-	Memory    MemoryConfig
 	Prompt    PromptConfig
 }
 
@@ -41,12 +40,6 @@ type AnthropicConfig struct {
 type AgentConfig struct {
 	Name              string
 	MaxToolIterations int
-}
-
-// MemoryConfig controls the SQLite-backed memory store.
-type MemoryConfig struct {
-	Enabled bool
-	DBPath  string
 }
 
 // PromptConfig points at the filesystem locations that contribute
@@ -76,10 +69,6 @@ type raw struct {
 		Name              string `toml:"name"`
 		MaxToolIterations *int   `toml:"max_tool_iterations"`
 	} `toml:"agent"`
-	Memory struct {
-		Enabled *bool  `toml:"enabled"`
-		DBPath  string `toml:"db_path"`
-	} `toml:"memory"`
 	Prompt struct {
 		System     string `toml:"system"`
 		ContextDir string `toml:"context_dir"`
@@ -130,14 +119,6 @@ func Load() (*Config, error) {
 	if r.Agent.MaxToolIterations != nil {
 		maxIter = *r.Agent.MaxToolIterations
 	}
-	memEnabled := true
-	if r.Memory.Enabled != nil {
-		memEnabled = *r.Memory.Enabled
-	}
-	dbPath := strings.TrimSpace(r.Memory.DBPath)
-	if dbPath == "" {
-		dbPath = "/var/lib/arissa/memory.db"
-	}
 	sysPrompt := strings.TrimSpace(r.Prompt.System)
 	if sysPrompt == "" {
 		sysPrompt = "/etc/arissa/system.prompt.md"
@@ -165,10 +146,6 @@ func Load() (*Config, error) {
 		Agent: AgentConfig{
 			Name:              agentName,
 			MaxToolIterations: maxIter,
-		},
-		Memory: MemoryConfig{
-			Enabled: memEnabled,
-			DBPath:  dbPath,
 		},
 		Prompt: PromptConfig{
 			System:     sysPrompt,
