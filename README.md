@@ -68,4 +68,4 @@ Dev container (`mcr.microsoft.com/devcontainers/go:1-trixie`) を同梱。配布
 
 ## ライセンス
 
-未定。
+[MIT](LICENSE)
