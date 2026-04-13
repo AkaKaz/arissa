@@ -57,7 +57,7 @@ func run() error {
 			return fmt.Errorf("open memory: %w", err)
 		}
 		mem = m
-		defer mem.Close()
+		defer func() { _ = mem.Close() }()
 	}
 
 	broker := approval.NewBroker()

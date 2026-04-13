@@ -11,6 +11,7 @@ package memory
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver
@@ -105,13 +106,13 @@ func (m *Memory) Remember(userID, key, value string) error {
 		`SELECT id FROM memories WHERE user_id IS ? AND key = ?`,
 		uid, key,
 	).Scan(&existing)
-	switch {
-	case err == sql.ErrNoRows:
+	switch err {
+	case sql.ErrNoRows:
 		_, err = m.db.Exec(
 			`INSERT INTO memories (user_id, key, value) VALUES (?, ?, ?)`,
 			uid, key, value,
 		)
-	case err == nil:
+	case nil:
 		_, err = m.db.Exec(
 			`UPDATE memories SET value = ?, updated_at = datetime('now') WHERE id = ?`,
 			value, existing,
@@ -137,7 +138,7 @@ func (m *Memory) Recall(userID, key string) (string, error) {
 		 ORDER BY user_id DESC LIMIT 1`,
 		uid, key,
 	).Scan(&value)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	return value, err

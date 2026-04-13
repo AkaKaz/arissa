@@ -100,7 +100,7 @@ func (g *Gateway) handleEvent(ctx context.Context, evt socketmode.Event) {
 			return
 		}
 		if evt.Request != nil {
-			g.sm.Ack(*evt.Request)
+			_ = g.sm.Ack(*evt.Request)
 		}
 		if eventsAPI.Type != slackevents.CallbackEvent {
 			return
@@ -118,7 +118,7 @@ func (g *Gateway) handleEvent(ctx context.Context, evt socketmode.Event) {
 			return
 		}
 		if evt.Request != nil {
-			g.sm.Ack(*evt.Request)
+			_ = g.sm.Ack(*evt.Request)
 		}
 		if cb.Type != slack.InteractionTypeBlockActions {
 			return
