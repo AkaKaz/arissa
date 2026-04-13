@@ -1,0 +1,21 @@
+[Unit]
+Description=arissa — Autonomous Resilient Infrastructure Setup & System Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/arissa
+Restart=on-failure
+RestartSec=5s
+# Exit code 0 means "not configured, don't restart".
+SuccessExitStatus=0
+
+User=arissa
+EnvironmentFile=-/etc/arissa/env
+
+NoNewPrivileges=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

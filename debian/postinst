@@ -1,0 +1,36 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Create the arissa system user if it doesn't already exist.
+        if ! getent passwd arissa >/dev/null 2>&1; then
+            useradd --system --shell /usr/sbin/nologin \
+                    --home-dir /nonexistent --no-create-home \
+                    arissa
+        fi
+
+        # Ensure config and data directories exist.
+        mkdir -p /etc/arissa/context /etc/arissa/skills
+        mkdir -p /var/lib/arissa
+
+        # /var/lib/arissa holds the SQLite memory DB; owned by arissa.
+        chown arissa:arissa /var/lib/arissa
+
+        # Install default config if missing.
+        if [ ! -f /etc/arissa/config.toml ]; then
+            cp /usr/share/arissa/config.toml.default /etc/arissa/config.toml
+            chmod 600 /etc/arissa/config.toml
+            chown arissa:arissa /etc/arissa/config.toml
+        fi
+
+        # Install default system prompt if missing.
+        if [ ! -f /etc/arissa/system.prompt.md ]; then
+            cp /usr/share/arissa/system.prompt.md.default /etc/arissa/system.prompt.md
+        fi
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

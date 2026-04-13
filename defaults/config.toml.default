@@ -1,0 +1,22 @@
+[slack]
+bot_token = ""
+app_token = ""
+allowed_channel_ids = []
+allowed_user_ids = []
+
+[anthropic]
+api_key = ""
+model = "claude-sonnet-4-20250514"
+
+[agent]
+name = "arissa"
+max_tool_iterations = 10
+
+[memory]
+enabled = true
+db_path = "/var/lib/arissa/memory.db"
+
+[prompt]
+system = "/etc/arissa/system.prompt.md"
+context_dir = "/etc/arissa/context"
+skills_dir = "/etc/arissa/skills"
