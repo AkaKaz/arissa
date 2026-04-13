@@ -1,0 +1,91 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # version.mk uses `git describe --tags`, so we need tags.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install dpkg-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends dpkg-dev
+
+      - name: Vet
+        run: make vet
+
+      - name: Test
+        run: make test
+
+      - name: Build
+        run: make build
+
+      - name: Package (.deb)
+        run: make deb
+
+      - name: Smoke test (exit 0 on missing config)
+        # The service should exit cleanly when required config is
+        # absent, so systemd does not restart-loop on unconfigured
+        # hosts. Run the compiled binary with a non-existent config
+        # path and assert exit code 0.
+        env:
+          ARISSA_CONFIG: /nonexistent/config.toml
+        run: ./bin/arissa
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: arissa-bin
+          path: bin/arissa
+          if-no-files-found: error
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: arissa-deb
+          path: dist/arissa.deb
+          if-no-files-found: error
+
+  deb-install-test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: arissa-deb
+          path: ./artifact
+
+      - name: Install into debian:trixie and verify
+        run: |
+          docker run --rm \
+            -v "$PWD/artifact:/artifact:ro" \
+            debian:trixie \
+            bash -c '
+              set -euo pipefail
+              apt-get update -qq
+              apt-get install -y --no-install-recommends systemd ca-certificates
+              dpkg -i /artifact/arissa.deb
+              getent passwd arissa
+              test -x /usr/bin/arissa
+              test -d /etc/arissa/context
+              test -d /etc/arissa/skills
+              test -d /var/lib/arissa
+              test -f /etc/arissa/config.toml
+              test -f /etc/arissa/system.prompt.md
+              systemd-analyze verify /usr/lib/systemd/system/arissa.service
+              /usr/bin/arissa
+            '
