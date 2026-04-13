@@ -51,7 +51,7 @@ arissa/
 
 | レイヤー | 採用技術 |
 |----------|---------|
-| 言語 | Go 1.23 |
+| 言語 | Go 1.25 |
 | LLM | `github.com/anthropics/anthropic-sdk-go` (Beta) / 既定モデル `claude-sonnet-4-20250514` |
 | チャット UI | `github.com/slack-go/slack`（Socket Mode） |
 | 設定 | `github.com/pelletier/go-toml/v2` |
@@ -161,6 +161,15 @@ skills_dir = "/etc/arissa/skills"
 
 operator は再起動でプロンプトを差し替えられる。
 
+既定の `system.prompt.md.default` では以下を Claude に指示している:
+
+- 使用可能な 2 ツール (`shell_exec`, `memory`) の役割と違い
+- 会話開始時に `/memories` を `view` して deployment のコンテキストを把握すること
+- 重要な事実は `create` / `str_replace` / `insert` で書き込むこと
+- memory はグローバル共有であり、トピック別の短い Markdown ファイルとして整理すること（例: `/memories/servers.md`, `/memories/incidents/2026-04-cache.md`）
+- `shell_exec` が拒否されたときはリトライせず operator に聞くこと
+- 日本語対応
+
 ---
 
 ## 9. ビルド・配布
@@ -168,8 +177,8 @@ operator は再起動でプロンプトを差し替えられる。
 ### 9.1 Go によるシングルバイナリ
 
 - `go build` で pure Go バイナリを生成（`CGO_ENABLED=0`）
-- 期待サイズ: 約 15〜20 MB（Bun `--compile` の 97 MB と比較して 1/5）
-- deb サイズ: 約 5〜8 MB
+- 実測サイズ: バイナリ約 10 MB、deb 約 3 MB
+- `-ldflags '-s -w'` でシンボル除去、`-trimpath` でビルドパスを消去
 
 ### 9.2 開発環境
 
