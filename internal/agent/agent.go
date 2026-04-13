@@ -1,10 +1,15 @@
-// Package agent drives the Claude tool-use loop.
+// Package agent drives the Claude tool-use loop against the Beta
+// Messages API.
 //
 // Each Slack user gets a Session with its own rolling history of
-// MessageParams. The Session asks Claude for a response, resolves
-// any tool_use blocks by calling the registered ToolHandler, feeds
-// the results back, and loops until Claude produces a final text
+// BetaMessageParams. The Session asks Claude for a response,
+// resolves tool_use blocks via the registered ToolHandler, feeds
+// results back, and loops until Claude produces a final text
 // response (or the iteration cap is hit).
+//
+// We use the Beta namespace (client.Beta.Messages.New) so we can
+// expose the built-in memory_20250818 tool alongside custom tools
+// like shell_exec.
 package agent
 
 import (
@@ -23,6 +28,14 @@ const defaultMaxToolIterations = 10
 const maxRollingTurns = 20
 const maxTokens = 4096
 
+// betaHeaders lists the Anthropic beta flags needed for the
+// memory tool. context-management is the canonical flag; adding
+// more beta flags here is how to opt into related features
+// (context editing, compaction) later.
+var betaHeaders = []anthropic.AnthropicBeta{
+	anthropic.AnthropicBetaContextManagement2025_06_27,
+}
+
 // Context describes who is talking and where. Passed to ToolHandler
 // so tool implementations (like the approval flow) can reach the
 // same Slack thread.
@@ -40,7 +53,9 @@ type ToolResult struct {
 	IsError bool
 }
 
-// ToolHandler resolves one tool_use invocation from Claude.
+// ToolHandler resolves one tool_use invocation from Claude. The
+// input is the tool_use block's input re-serialised to JSON so
+// handlers can unmarshal into their own shape.
 type ToolHandler func(ctx context.Context, name string, input json.RawMessage, ac Context) (ToolResult, error)
 
 // Deps bundles the collaborators that every Session shares.
@@ -48,14 +63,14 @@ type Deps struct {
 	Client       *anthropic.Client
 	Cfg          *config.Config
 	SystemPrompt string
-	Tools        []anthropic.ToolUnionParam
+	Tools        []anthropic.BetaToolUnionParam
 	Handle       ToolHandler
 }
 
 // Session is one user's rolling conversation with Claude.
 type Session struct {
 	deps    *Deps
-	history []anthropic.MessageParam
+	history []anthropic.BetaMessageParam
 }
 
 // NewSession creates an empty session tied to a set of Deps.
@@ -67,7 +82,7 @@ func NewSession(deps *Deps) *Session {
 // loop until Claude finishes. The returned string is the final
 // assistant message.
 func (s *Session) Send(ctx context.Context, userText string, ac Context) (string, error) {
-	s.history = append(s.history, anthropic.NewUserMessage(anthropic.NewTextBlock(userText)))
+	s.history = append(s.history, anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(userText)))
 	s.trim()
 
 	maxIter := s.deps.Cfg.Agent.MaxToolIterations
@@ -76,14 +91,15 @@ func (s *Session) Send(ctx context.Context, userText string, ac Context) (string
 	}
 
 	for i := 0; i < maxIter; i++ {
-		resp, err := s.deps.Client.Messages.New(ctx, anthropic.MessageNewParams{
+		resp, err := s.deps.Client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
 			Model:     anthropic.Model(s.deps.Cfg.Anthropic.Model),
 			MaxTokens: maxTokens,
-			System: []anthropic.TextBlockParam{
+			System: []anthropic.BetaTextBlockParam{
 				{Text: s.deps.SystemPrompt},
 			},
 			Tools:    s.deps.Tools,
 			Messages: s.history,
+			Betas:    betaHeaders,
 		})
 		if err != nil {
 			return "", fmt.Errorf("claude: %w", err)
@@ -91,7 +107,7 @@ func (s *Session) Send(ctx context.Context, userText string, ac Context) (string
 
 		s.history = append(s.history, resp.ToParam())
 
-		if resp.StopReason != anthropic.StopReasonToolUse {
+		if resp.StopReason != anthropic.BetaStopReasonToolUse {
 			text := collectText(resp.Content)
 			s.trim()
 			if text == "" {
@@ -100,31 +116,36 @@ func (s *Session) Send(ctx context.Context, userText string, ac Context) (string
 			return text, nil
 		}
 
-		var results []anthropic.ContentBlockParamUnion
+		var results []anthropic.BetaContentBlockParamUnion
 		for _, block := range resp.Content {
-			tu, ok := block.AsAny().(anthropic.ToolUseBlock)
+			tu, ok := block.AsAny().(anthropic.BetaToolUseBlock)
 			if !ok {
 				continue
 			}
-			out, herr := s.deps.Handle(ctx, tu.Name, tu.Input, ac)
-			content := out.Content
-			if herr != nil {
-				content = fmt.Sprintf("tool error: %v", herr)
-				results = append(results, anthropic.NewToolResultBlock(tu.ID, content, true))
+			rawInput, err := json.Marshal(tu.Input)
+			if err != nil {
+				results = append(results, anthropic.NewBetaToolResultBlock(
+					tu.ID, fmt.Sprintf("tool input serialisation failed: %v", err), true))
 				continue
 			}
-			results = append(results, anthropic.NewToolResultBlock(tu.ID, content, out.IsError))
+			out, herr := s.deps.Handle(ctx, tu.Name, rawInput, ac)
+			if herr != nil {
+				results = append(results, anthropic.NewBetaToolResultBlock(
+					tu.ID, fmt.Sprintf("tool error: %v", herr), true))
+				continue
+			}
+			results = append(results, anthropic.NewBetaToolResultBlock(tu.ID, out.Content, out.IsError))
 		}
-		s.history = append(s.history, anthropic.NewUserMessage(results...))
+		s.history = append(s.history, anthropic.NewBetaUserMessage(results...))
 	}
 
 	return "(aborted: tool-use loop exceeded iteration cap)", nil
 }
 
-func collectText(blocks []anthropic.ContentBlockUnion) string {
+func collectText(blocks []anthropic.BetaContentBlockUnion) string {
 	var parts []string
 	for _, b := range blocks {
-		if tb, ok := b.AsAny().(anthropic.TextBlock); ok {
+		if tb, ok := b.AsAny().(anthropic.BetaTextBlock); ok {
 			if tb.Text != "" {
 				parts = append(parts, tb.Text)
 			}
@@ -144,8 +165,8 @@ func (s *Session) trim() {
 	}
 }
 
-func hasToolResult(m anthropic.MessageParam) bool {
-	if m.Role != anthropic.MessageParamRoleUser {
+func hasToolResult(m anthropic.BetaMessageParam) bool {
+	if m.Role != anthropic.BetaMessageParamRoleUser {
 		return false
 	}
 	for _, b := range m.Content {
@@ -180,7 +201,7 @@ func (r *Registry) For(userID string) *Session {
 	return s
 }
 
-// Reset drops the Session and its persisted turns for userID.
+// Reset drops the Session for userID.
 func (r *Registry) Reset(userID string) {
 	r.mu.Lock()
 	delete(r.sessions, userID)

@@ -19,6 +19,7 @@ type Config struct {
 	Slack     SlackConfig
 	Anthropic AnthropicConfig
 	Agent     AgentConfig
+	Memory    MemoryConfig
 	Prompt    PromptConfig
 }
 
@@ -40,6 +41,12 @@ type AnthropicConfig struct {
 type AgentConfig struct {
 	Name              string
 	MaxToolIterations int
+}
+
+// MemoryConfig controls the filesystem-backed memory store
+// exposed to Claude via the built-in memory_20250818 tool.
+type MemoryConfig struct {
+	Dir string
 }
 
 // PromptConfig points at the filesystem locations that contribute
@@ -69,6 +76,9 @@ type raw struct {
 		Name              string `toml:"name"`
 		MaxToolIterations *int   `toml:"max_tool_iterations"`
 	} `toml:"agent"`
+	Memory struct {
+		Dir string `toml:"dir"`
+	} `toml:"memory"`
 	Prompt struct {
 		System     string `toml:"system"`
 		ContextDir string `toml:"context_dir"`
@@ -119,6 +129,10 @@ func Load() (*Config, error) {
 	if r.Agent.MaxToolIterations != nil {
 		maxIter = *r.Agent.MaxToolIterations
 	}
+	memDir := strings.TrimSpace(r.Memory.Dir)
+	if memDir == "" {
+		memDir = "/var/lib/arissa/memories"
+	}
 	sysPrompt := strings.TrimSpace(r.Prompt.System)
 	if sysPrompt == "" {
 		sysPrompt = "/etc/arissa/system.prompt.md"
@@ -146,6 +160,9 @@ func Load() (*Config, error) {
 		Agent: AgentConfig{
 			Name:              agentName,
 			MaxToolIterations: maxIter,
+		},
+		Memory: MemoryConfig{
+			Dir: memDir,
 		},
 		Prompt: PromptConfig{
 			System:     sysPrompt,

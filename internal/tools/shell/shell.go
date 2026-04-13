@@ -18,9 +18,9 @@ import (
 )
 
 // Tool returns the shell_exec tool definition for the Claude API.
-func Tool() anthropic.ToolUnionParam {
-	return anthropic.ToolUnionParam{
-		OfTool: &anthropic.ToolParam{
+func Tool() anthropic.BetaToolUnionParam {
+	return anthropic.BetaToolUnionParam{
+		OfTool: &anthropic.BetaToolParam{
 			Name: "shell_exec",
 			Description: anthropic.String(
 				"Execute a shell command on this host. " +
@@ -28,7 +28,7 @@ func Tool() anthropic.ToolUnionParam {
 					"What you can do is determined by OS-level permissions (groups, sudoers). " +
 					"For destructive operations, the operator will be asked to approve via Slack.",
 			),
-			InputSchema: anthropic.ToolInputSchemaParam{
+			InputSchema: anthropic.BetaToolInputSchemaParam{
 				Properties: map[string]any{
 					"command": map[string]string{
 						"type":        "string",

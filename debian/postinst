@@ -13,9 +13,15 @@ case "$1" in
         # Ensure config and data directories exist.
         mkdir -p /etc/arissa/context /etc/arissa/skills
         mkdir -p /var/lib/arissa
+        mkdir -p /var/lib/arissa/memories
 
         # /var/lib/arissa is arissa's state directory, owned by arissa.
         chown arissa:arissa /var/lib/arissa
+        # /var/lib/arissa/memories backs the Claude memory tool;
+        # 0700 because its contents can include anything Claude
+        # was told to remember.
+        chown arissa:arissa /var/lib/arissa/memories
+        chmod 700 /var/lib/arissa/memories
 
         # Install default config if missing.
         if [ ! -f /etc/arissa/config.toml ]; then

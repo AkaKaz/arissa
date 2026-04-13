@@ -19,9 +19,11 @@ import (
 
 	"arissa/internal/agent"
 	"arissa/internal/config"
+	"arissa/internal/memory"
 	"arissa/internal/prompt"
 	slackgw "arissa/internal/slack"
 	"arissa/internal/tools/approval"
+	memorytool "arissa/internal/tools/memory"
 	"arissa/internal/tools/shell"
 	"arissa/internal/version"
 )
@@ -49,6 +51,11 @@ func run() error {
 	client := anthropic.NewClient(option.WithAPIKey(cfg.Anthropic.APIKey))
 	systemPrompt := prompt.Build(cfg)
 
+	store, err := memory.New(cfg.Memory.Dir)
+	if err != nil {
+		return fmt.Errorf("open memory store: %w", err)
+	}
+
 	broker := approval.NewBroker()
 	gw := slackgw.New(cfg, broker)
 
@@ -56,8 +63,11 @@ func run() error {
 		Client:       &client,
 		Cfg:          cfg,
 		SystemPrompt: systemPrompt,
-		Tools:        []anthropic.ToolUnionParam{shell.Tool()},
-		Handle:       makeToolHandler(cfg, gw, broker),
+		Tools: []anthropic.BetaToolUnionParam{
+			shell.Tool(),
+			memorytool.Tool(),
+		},
+		Handle: makeToolHandler(cfg, gw, broker, store),
 	}
 	registry := agent.NewRegistry(deps)
 	gw.SetRegistry(registry)
@@ -80,74 +90,85 @@ func run() error {
 	return nil
 }
 
-// makeToolHandler builds the ToolHandler closure that routes the
-// shell_exec tool through the Slack approval flow before calling
-// shell.Exec.
-func makeToolHandler(cfg *config.Config, gw *slackgw.Gateway, broker *approval.Broker) agent.ToolHandler {
+// makeToolHandler returns a ToolHandler that dispatches to the
+// shell_exec and memory tools.
+//
+// shell_exec commands go through the Slack approval flow before
+// calling shell.Exec. memory is Anthropic's built-in tool and is
+// answered by the filesystem-backed Store directly.
+func makeToolHandler(cfg *config.Config, gw *slackgw.Gateway, broker *approval.Broker, store *memory.Store) agent.ToolHandler {
 	return func(ctx context.Context, name string, input json.RawMessage, ac agent.Context) (agent.ToolResult, error) {
-		if name != "shell_exec" {
+		switch name {
+		case "memory":
+			out, ok := memorytool.Dispatch(store, input)
+			return agent.ToolResult{Content: out, IsError: !ok}, nil
+		case "shell_exec":
+			return runShell(ctx, cfg, gw, broker, input, ac)
+		default:
 			return agent.ToolResult{
 				Content: fmt.Sprintf("unknown tool: %s", name),
 				IsError: true,
 			}, nil
 		}
+	}
+}
 
-		var args struct {
-			Command string `json:"command"`
-			Reason  string `json:"reason"`
-		}
-		if err := json.Unmarshal(input, &args); err != nil {
-			return agent.ToolResult{
-				Content: fmt.Sprintf("shell_exec: invalid input: %v", err),
-				IsError: true,
-			}, nil
-		}
-		command := strings.TrimSpace(args.Command)
-		reason := args.Reason
-		if reason == "" {
-			reason = "(no reason)"
-		}
-		if command == "" {
-			return agent.ToolResult{
-				Content: "shell_exec: command is required",
-				IsError: true,
-			}, nil
-		}
-
-		req := approval.Request{
-			Command:        command,
-			Reason:         reason,
-			RequesterID:    ac.UserID,
-			ChannelID:      ac.ChannelID,
-			ThreadTS:       ac.ThreadTS,
-			AllowedUserIDs: cfg.Slack.AllowedUserIDs,
-		}
-		decision, err := broker.Request(ctx, gw.API(), req)
-		if err != nil {
-			return agent.ToolResult{
-				Content: fmt.Sprintf("approval request failed: %v", err),
-				IsError: true,
-			}, nil
-		}
-		if !decision.Approved {
-			msg := "Operator denied the command"
-			if decision.Reason != "" {
-				msg = fmt.Sprintf("%s (%s)", msg, decision.Reason)
-			}
-			msg += ". Do not retry; ask the operator what they want instead."
-			return agent.ToolResult{Content: msg, IsError: false}, nil
-		}
-
-		res, err := shell.Exec(ctx, command)
-		if err != nil {
-			return agent.ToolResult{
-				Content: fmt.Sprintf("exec failed: %v", err),
-				IsError: true,
-			}, nil
-		}
+func runShell(ctx context.Context, cfg *config.Config, gw *slackgw.Gateway, broker *approval.Broker, input json.RawMessage, ac agent.Context) (agent.ToolResult, error) {
+	var args struct {
+		Command string `json:"command"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
 		return agent.ToolResult{
-			Content: shell.Format(res),
-			IsError: res.ExitCode != 0,
+			Content: fmt.Sprintf("shell_exec: invalid input: %v", err),
+			IsError: true,
 		}, nil
 	}
+	command := strings.TrimSpace(args.Command)
+	reason := args.Reason
+	if reason == "" {
+		reason = "(no reason)"
+	}
+	if command == "" {
+		return agent.ToolResult{
+			Content: "shell_exec: command is required",
+			IsError: true,
+		}, nil
+	}
+
+	req := approval.Request{
+		Command:        command,
+		Reason:         reason,
+		RequesterID:    ac.UserID,
+		ChannelID:      ac.ChannelID,
+		ThreadTS:       ac.ThreadTS,
+		AllowedUserIDs: cfg.Slack.AllowedUserIDs,
+	}
+	decision, err := broker.Request(ctx, gw.API(), req)
+	if err != nil {
+		return agent.ToolResult{
+			Content: fmt.Sprintf("approval request failed: %v", err),
+			IsError: true,
+		}, nil
+	}
+	if !decision.Approved {
+		msg := "Operator denied the command"
+		if decision.Reason != "" {
+			msg = fmt.Sprintf("%s (%s)", msg, decision.Reason)
+		}
+		msg += ". Do not retry; ask the operator what they want instead."
+		return agent.ToolResult{Content: msg, IsError: false}, nil
+	}
+
+	res, err := shell.Exec(ctx, command)
+	if err != nil {
+		return agent.ToolResult{
+			Content: fmt.Sprintf("exec failed: %v", err),
+			IsError: true,
+		}, nil
+	}
+	return agent.ToolResult{
+		Content: shell.Format(res),
+		IsError: res.ExitCode != 0,
+	}, nil
 }
