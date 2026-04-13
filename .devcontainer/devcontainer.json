@@ -4,7 +4,6 @@
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-  "runArgs": ["--platform=linux/amd64"],
   "postCreateCommand": "go mod download",
   "customizations": {
     "vscode": {
