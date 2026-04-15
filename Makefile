@@ -16,7 +16,7 @@ LDFLAGS := -s -w -X arissa/internal/version.Version=$(VERSION)
 
 GO_SOURCES := $(shell find cmd internal -type f -name '*.go' 2>/dev/null)
 
-.PHONY: all build rebuild clean vet test deb
+.PHONY: all build rebuild clean vet test deb arch
 
 all: build
 
@@ -64,3 +64,27 @@ $(DEB): $(BIN) systemd/arissa.service debian/control debian/postinst defaults/co
 	cp debian/postinst dist/pkg/DEBIAN/postinst
 	chmod 755 dist/pkg/DEBIAN/postinst
 	dpkg-deb --build --root-owner-group dist/pkg $(DEB)
+
+# ---- Arch Linux package ----
+# Produces dist/arissa-$(VERSION)-1-x86_64.pkg.tar.zst via makepkg.
+# Must run on an Arch host (or archlinux:base-devel container) as a
+# non-root user with base-devel installed.
+PKGVER := $(shell echo '$(VERSION)' | sed 's/^v//; s/-/./g')
+ARCH_PKG := dist/arissa-$(PKGVER)-1-x86_64.pkg.tar.zst
+
+arch: $(ARCH_PKG)
+
+$(ARCH_PKG): $(BIN) systemd/arissa.service arch/PKGBUILD arch/arissa.install defaults/config.toml.default defaults/system.prompt.md.default LICENSE
+	@command -v makepkg >/dev/null 2>&1 || { \
+		echo "makepkg not found. Run on an Arch host or archlinux:base-devel container."; \
+		exit 1; \
+	}
+	@mkdir -p dist
+	rm -rf dist/arch-build
+	mkdir -p dist/arch-build
+	sed 's/$${ARISSA_VERSION}/$(PKGVER)/' arch/PKGBUILD > dist/arch-build/PKGBUILD
+	cp arch/arissa.install dist/arch-build/arissa.install
+	cd dist/arch-build && \
+		env SRCDEST="$(CURDIR)" PKGDEST="$(CURDIR)/dist" \
+		makepkg --nodeps --noextract --skipinteg --force
+

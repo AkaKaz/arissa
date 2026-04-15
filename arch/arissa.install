@@ -1,0 +1,28 @@
+post_install() {
+    if ! getent passwd arissa >/dev/null 2>&1; then
+        useradd --system --shell /usr/sbin/nologin \
+                --home-dir /nonexistent --no-create-home \
+                arissa
+    fi
+
+    mkdir -p /etc/arissa/context /etc/arissa/skills
+    mkdir -p /var/lib/arissa /var/lib/arissa/memories
+
+    chown arissa:arissa /var/lib/arissa
+    chown arissa:arissa /var/lib/arissa/memories
+    chmod 700 /var/lib/arissa/memories
+
+    if [ ! -f /etc/arissa/config.toml ]; then
+        cp /usr/share/arissa/config.toml.default /etc/arissa/config.toml
+        chmod 600 /etc/arissa/config.toml
+        chown arissa:arissa /etc/arissa/config.toml
+    fi
+
+    if [ ! -f /etc/arissa/system.prompt.md ]; then
+        cp /usr/share/arissa/system.prompt.md.default /etc/arissa/system.prompt.md
+    fi
+}
+
+post_upgrade() {
+    post_install
+}

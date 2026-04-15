@@ -76,6 +76,72 @@ jobs:
           path: dist/arissa.deb
           if-no-files-found: error
 
+  arch-build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Install toolchain
+        run: |
+          pacman -Sy --noconfirm --needed go git sudo
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Trust workspace (git safe.directory)
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Create build user
+        # makepkg refuses to run as root.
+        run: |
+          useradd -m builder
+          chown -R builder:builder .
+
+      - name: Build binary
+        run: sudo -u builder make build
+
+      - name: Package (Arch)
+        run: sudo -u builder make arch
+
+      - name: Upload Arch package
+        uses: actions/upload-artifact@v4
+        with:
+          name: arissa-archpkg
+          path: dist/arissa-*-x86_64.pkg.tar.zst
+          if-no-files-found: error
+
+  arch-install-test:
+    needs: arch-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Arch package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: arissa-archpkg
+          path: ./artifact
+
+      - name: Install into archlinux and verify
+        run: |
+          docker run --rm \
+            -v "$PWD/artifact:/artifact:ro" \
+            archlinux:base \
+            bash -c '
+              set -euo pipefail
+              pacman -Sy --noconfirm --needed systemd ca-certificates
+              pacman -U --noconfirm /artifact/arissa-*-x86_64.pkg.tar.zst
+              getent passwd arissa
+              test -x /usr/bin/arissa
+              test -d /etc/arissa/context
+              test -d /etc/arissa/skills
+              test -d /var/lib/arissa
+              test -f /etc/arissa/config.toml
+              test -f /etc/arissa/system.prompt.md
+              systemd-analyze verify /usr/lib/systemd/system/arissa.service
+              /usr/bin/arissa
+            '
+
   deb-install-test:
     needs: build
     runs-on: ubuntu-latest

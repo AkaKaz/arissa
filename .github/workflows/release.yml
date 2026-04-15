@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build-deb:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -34,11 +34,71 @@ jobs:
       - name: Package (.deb)
         run: make deb
 
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-deb
+          path: |
+            bin/arissa
+            dist/arissa.deb
+          if-no-files-found: error
+
+  build-arch:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Install toolchain
+        run: pacman -Sy --noconfirm --needed go git sudo
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Trust workspace (git safe.directory)
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Create build user
+        run: |
+          useradd -m builder
+          chown -R builder:builder .
+
+      - name: Build binary
+        run: sudo -u builder make build
+
+      - name: Package (Arch)
+        run: sudo -u builder make arch
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-arch
+          path: dist/arissa-*-x86_64.pkg.tar.zst
+          if-no-files-found: error
+
+  release:
+    needs: [build-deb, build-arch]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-deb
+          path: ./release
+
+      - name: Download arch artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-arch
+          path: ./release/dist
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            bin/arissa
-            dist/arissa.deb
+            release/bin/arissa
+            release/dist/arissa.deb
+            release/dist/arissa-*-x86_64.pkg.tar.zst
           generate_release_notes: true
           fail_on_unmatched_files: true

@@ -1,0 +1,24 @@
+# Maintainer: Kazuma Akamine <kazuma@akanmi.net>
+pkgname=arissa
+pkgver=${ARISSA_VERSION}
+pkgrel=1
+pkgdesc="Autonomous Resilient Infrastructure Setup & System Agent"
+arch=('x86_64')
+url="https://github.com/"
+license=('MIT')
+depends=('ca-certificates' 'systemd')
+backup=('etc/arissa/config.toml' 'etc/arissa/system.prompt.md')
+install=arissa.install
+# Build from the checked-out source tree; makepkg is invoked from the repo root
+# via BUILDDIR/SRCDEST overrides, so no source array is needed.
+options=('!strip')
+
+package() {
+    cd "$SRCDEST"
+
+    install -Dm755 bin/arissa                               "$pkgdir/usr/bin/arissa"
+    install -Dm644 systemd/arissa.service                   "$pkgdir/usr/lib/systemd/system/arissa.service"
+    install -Dm644 defaults/config.toml.default             "$pkgdir/usr/share/arissa/config.toml.default"
+    install -Dm644 defaults/system.prompt.md.default        "$pkgdir/usr/share/arissa/system.prompt.md.default"
+    install -Dm644 LICENSE                                  "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
