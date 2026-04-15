@@ -20,7 +20,7 @@ sudoedit /etc/arissa/config.toml   # slack tokens, anthropic api key
 sudo systemctl start arissa
 ```
 
-`postinst` が `arissa` システムユーザと `/var/lib/arissa/memories` などの必要ディレクトリを作成する。
+`postinst` が `arissa` システムユーザと `/var/lib/arissa/memories` などの必要ディレクトリを作成する。Slack / Anthropic API への HTTPS 接続に必要なため、`ca-certificates` に依存する (dpkg が自動で導入)。
 
 ## 設定
 

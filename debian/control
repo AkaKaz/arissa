@@ -4,6 +4,7 @@ Section: admin
 Priority: optional
 Architecture: amd64
 Maintainer: Kazuma Akamine <kazuma@akanmi.net>
+Depends: ${misc:Depends}, ca-certificates
 Description: arissa — Autonomous Resilient Infrastructure Setup & System Agent
  Slack agent powered by Claude for managing infrastructure remotely.
  Reads context and skills from /etc/arissa/ at runtime.
